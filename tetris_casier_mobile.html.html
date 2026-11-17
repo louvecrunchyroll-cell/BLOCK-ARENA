@@ -1,0 +1,104 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<title>BLOCK ARENA - Casier</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;min-height:100dvh;color:white;
+ font-family:Arial,sans-serif;
+ background:
+ linear-gradient(135deg,#080b1e,#181037 65%,#090e22);
+}
+body:before{
+ content:"";position:fixed;inset:0;pointer-events:none;
+ background-image:linear-gradient(#7d61ed18 1px,transparent 1px),
+ linear-gradient(90deg,#7d61ed18 1px,transparent 1px);
+ background-size:34px 34px;
+}
+.app{position:relative;width:min(100%,760px);margin:auto;padding:calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 40px)}
+header{display:flex;align-items:center;gap:16px;margin-bottom:26px}
+.back{
+ border:1px solid #7764cf;background:#241c49;color:white;
+ padding:12px;border-radius:12px;font-size:20px;cursor:pointer
+}
+h1{font-size:29px;margin:0;color:#fff;text-shadow:0 0 18px #a75cff}
+.subtitle{color:#b7acd9;font-size:13px;margin:6px 0 22px}
+.locker-categories{display:grid;gap:10px}
+.fold-section{overflow:hidden;border:1px solid #514875;border-radius:12px;background:#101329d9}
+.fold-toggle{display:flex;width:100%;min-height:48px;align-items:center;gap:9px;padding:8px 13px;border:0;background:transparent;color:white;text-align:left;font:inherit;font-size:14px;cursor:pointer;touch-action:manipulation}
+.fold-title{flex:1;min-width:0;font-weight:800}
+.fold-chevron{color:#65e4ff;font-size:12px;transition:transform 140ms ease}
+.fold-toggle[aria-expanded="true"] .fold-chevron{transform:rotate(180deg)}
+.fold-content{padding:0 10px 10px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.item{
+ min-width:0;min-height:0;background:#17172dd9;
+ border:1px solid #514875;border-radius:15px;
+ display:flex;flex-direction:column;align-items:stretch;
+ justify-content:flex-start;gap:7px;padding:8px
+}
+.item.selected{border:2px solid #65e4ff;box-shadow:0 0 15px #43cfff44}
+.skin-image-frame{width:100%;aspect-ratio:1;min-width:0;display:grid;place-items:center;overflow:hidden;border:1px solid #514875;border-radius:10px;background:#111329}
+.skin-image{display:block;width:100%;height:100%;object-fit:contain}
+.preview{display:flex;gap:3px;flex-wrap:wrap;width:72px;justify-content:center}
+.block{width:21px;height:21px;border-radius:3px;background:#808080;box-shadow:0 0 9px #808080}
+.item-name{min-width:0;min-height:2.4em;display:grid;place-items:center;text-align:center;font-size:clamp(10px,2.8vw,13px);line-height:1.2;color:#fff;overflow-wrap:anywhere}
+.item-status{min-width:0;text-align:center;font-size:clamp(8px,2.3vw,10px);line-height:1.2;color:#b7acd9;overflow-wrap:anywhere}
+.item button{
+ width:100%;min-height:34px;background:#5038a6;border:0;border-radius:8px;
+ padding:7px 4px;color:white;font-size:clamp(9px,2.6vw,12px);font-weight:bold;cursor:pointer;touch-action:manipulation
+}
+.item button:disabled{background:#284e64;color:#8df0ff}
+.item button.secondary{background:#293454}
+.item.locked{opacity:.68}
+.empty-message{grid-column:1/-1;margin:0;padding:16px 8px;border:1px dashed #50496d;border-radius:10px;color:#a79fc4;font-size:13px;text-align:center}
+.empty-icon{width:100%;aspect-ratio:1;display:grid;place-items:center;border:1px solid #514875;border-radius:10px;background:#111329;font-size:34px;color:#c9b6ef}
+.info{margin-top:24px;text-align:center;color:#a79fc4;font-size:13px}
+@media(max-width:360px){.app{padding-left:10px;padding-right:10px}.fold-content{padding-right:7px;padding-left:7px}.grid{gap:7px}.item{padding:6px;gap:5px}}
+</style>
+<script src="tetris-transition.js?v=20261109-block-arena-brand"></script>
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><link rel="manifest" href="/manifest.webmanifest"><meta name="application-name" content="BLOCK ARENA"><meta name="apple-mobile-web-app-title" content="BLOCK ARENA"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="theme-color" content="#090b1b"><meta property="og:type" content="website"><meta property="og:site_name" content="BLOCK ARENA"><meta property="og:title" content="BLOCK ARENA"><meta property="og:description" content="Joue à BLOCK ARENA, le jeu de blocs à partager avec tes amis."><meta property="og:image" content="https://tetris-862ae.web.app/logo%20jeu%20app/Logo%20pixel%20violet%20en%20blocs.png"><meta property="og:image:width" content="1254"><meta property="og:image:height" content="1254"><meta property="og:image:alt" content="Logo violet de BLOCK ARENA"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="BLOCK ARENA"><meta name="twitter:description" content="Joue à BLOCK ARENA, le jeu de blocs à partager avec tes amis."><meta name="twitter:image" content="https://tetris-862ae.web.app/logo%20jeu%20app/Logo%20pixel%20violet%20en%20blocs.png"></head>
+<body>
+<main class="app">
+<header>
+<button class="back" onclick="location.href='tetris_salon_mobile_battle_pass.html'">←</button>
+<div><h1>CASIER</h1><div class="subtitle">Personnalise ton expérience de jeu</div></div>
+</header>
+
+<div class="locker-categories">
+<section class="fold-section">
+<button class="fold-toggle" id="skinsToggle" type="button" aria-expanded="false" aria-controls="skins">
+<span class="fold-chevron" aria-hidden="true">▼</span><span class="fold-title">🎨 SKINS DE FORMES</span>
+</button>
+<div class="fold-content" id="skins" hidden><div class="grid" data-locker-grid="skins"></div></div>
+</section>
+<section class="fold-section">
+<button class="fold-toggle" id="musicToggle" type="button" aria-expanded="false" aria-controls="music">
+<span class="fold-chevron" aria-hidden="true">▼</span><span class="fold-title">🎵 MUSIQUES</span>
+</button>
+<div class="fold-content" id="music" hidden><div class="grid" data-locker-grid="music"></div></div>
+</section>
+<section class="fold-section">
+<button class="fold-toggle" id="xpBoostsToggle" type="button" aria-expanded="false" aria-controls="xpBoosts">
+<span class="fold-chevron" aria-hidden="true">▼</span><span class="fold-title">⚡ BOOST XP</span>
+</button>
+<div class="fold-content" id="xpBoosts" hidden><div class="grid" data-locker-grid="xpBoosts"></div></div>
+</section>
+<section class="fold-section">
+<button class="fold-toggle" id="loadingScreensToggle" type="button" aria-expanded="false" aria-controls="loadingScreens">
+<span class="fold-chevron" aria-hidden="true">▼</span><span class="fold-title">🌌 ÉCRANS DE CHARGEMENT</span>
+</button>
+<div class="fold-content" id="loadingScreens" hidden><div class="grid" data-locker-grid="loadingScreens"></div></div>
+</section>
+</div>
+<p class="info">Les skins débloqués sont sauvegardés automatiquement dans ton casier.</p>
+</main>
+<script src="firebase-config.js?v=20261107-firebase-functions"></script>
+<script src="firebase-sdk-loader.js?v=20261107-auth-no-app-check"></script>
+<script src="tetris_app.js?v=20261112-battle-pass-first-nine-pages"></script>
+</body>
+</html>

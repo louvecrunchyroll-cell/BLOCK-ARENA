@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#090b1c">
+  <title>Quêtes • BLOCK ARENA</title>
+  <style>
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#fff;background:#080b1d}
+    body{min-height:100dvh;background:radial-gradient(ellipse at 80% 12%,#28125d 0,transparent 42%),radial-gradient(ellipse at 5% 85%,#082b58 0,transparent 45%),#080b1d;overflow-x:hidden}
+    button{font:inherit;touch-action:manipulation}
+    .app{width:min(100%,1000px);min-height:100dvh;margin:auto;padding:calc(16px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));position:relative}
+    .app:before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.2;background-image:linear-gradient(#31437455 1px,transparent 1px),linear-gradient(90deg,#31437455 1px,transparent 1px);background-size:35px 35px;mask-image:linear-gradient(to bottom,black,transparent 92%)}
+    .app>*{position:relative}
+    .top{display:flex;align-items:center;gap:12px}
+    .back{width:46px;height:46px;flex:none;border:1px solid #9d51f3;border-radius:14px;background:#261447;color:white;font-size:25px;cursor:pointer;box-shadow:0 0 15px #a333ef55}
+    .title{margin:18px 0 5px;text-align:center;font-size:clamp(34px,8vw,52px);font-weight:1000;letter-spacing:2px;text-shadow:0 3px 0 #4420a4,0 0 20px #c043ff}
+    .subtitle{text-align:center;margin:0 0 18px;color:#c5c9e7;font-size:13px}
+    .status{min-height:22px;margin:0 0 14px;text-align:center;color:#cfc7eb;font-size:13px}
+    .status.error{color:#ffb8bf}
+    .category{margin:18px 0 26px;padding:14px;border:1px solid #7044b8;border-radius:18px;background:linear-gradient(160deg,#25184d99,#101b3d99);box-shadow:inset 0 0 22px #7032b522,0 0 14px #432b8733}
+    .category h2{margin:0 0 12px;font-size:clamp(16px,4vw,21px);letter-spacing:.7px;color:#f5dcff;text-shadow:0 0 12px #a333ef66}
+    .unavailable{margin:0 0 12px;padding:10px 12px;border:1px solid #956f36;border-radius:11px;background:#332814;color:#ffe5a7;font-size:12px;line-height:1.45}
+    .steps{display:grid;grid-template-columns:1fr;gap:10px}
+    .step{min-width:0;padding:12px;border:1px solid #47527f;border-radius:13px;background:linear-gradient(145deg,#151b38,#0d1429);box-shadow:0 4px 12px #03061166}
+    .step.prestige{border-color:#d29c41;background:linear-gradient(145deg,#3b2b18,#1b1830 55%,#19142f);box-shadow:inset 0 0 18px #f4c45c1c,0 0 12px #e6a33722}
+    .step.prestige .step-number{color:#ffe49a}
+    .step.completed{border-color:#48d6a0;background:linear-gradient(145deg,#103c37,#102633);box-shadow:0 0 12px #38d99b33}
+    .step-head{display:flex;align-items:flex-start;gap:8px}
+    .step-number{flex:none;color:#bfa5ff;font-size:12px;font-weight:950;letter-spacing:.4px}
+    .step h3{margin:0;font-size:14px;line-height:1.35}
+    .progress-copy{margin:0 0 6px;color:#c6cbe2;font-size:11px;font-weight:750}
+    .bar{height:8px;overflow:hidden;border:1px solid #46517d;border-radius:99px;background:#080e20}
+    .bar span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#35d9ff,#a75bff);transition:width .2s ease}
+    .prestige .bar span{background:linear-gradient(90deg,#f6cb59,#ff8e4f)}
+    .completed .bar span{background:linear-gradient(90deg,#32e4a0,#a8ffcb)}
+    .reward-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;font-size:11px;font-weight:850}
+    .reward{color:#ffe27a}
+    .completed-label{color:#88f5c2;letter-spacing:.7px}
+    .not-completed{color:#aab1cf}
+    @media(min-width:700px){.category{padding:18px}.step{padding:14px}}
+    @media(max-width:360px){.app{padding-left:11px;padding-right:11px}.category{padding:11px}.step{padding:10px}.step h3{font-size:13px}}
+    @media(prefers-reduced-motion:reduce){.bar span{transition:none}}
+  </style>
+  <script src="tetris-transition.js?v=20261109-block-arena-brand"></script>
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><link rel="manifest" href="/manifest.webmanifest"><meta name="application-name" content="BLOCK ARENA"><meta name="apple-mobile-web-app-title" content="BLOCK ARENA"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta property="og:type" content="website"><meta property="og:site_name" content="BLOCK ARENA"><meta property="og:title" content="BLOCK ARENA"><meta property="og:description" content="Joue à BLOCK ARENA, le jeu de blocs à partager avec tes amis."><meta property="og:image" content="https://tetris-862ae.web.app/logo%20jeu%20app/Logo%20pixel%20violet%20en%20blocs.png"><meta property="og:image:width" content="1254"><meta property="og:image:height" content="1254"><meta property="og:image:alt" content="Logo violet de BLOCK ARENA"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="BLOCK ARENA"><meta name="twitter:description" content="Joue à BLOCK ARENA, le jeu de blocs à partager avec tes amis."><meta name="twitter:image" content="https://tetris-862ae.web.app/logo%20jeu%20app/Logo%20pixel%20violet%20en%20blocs.png"></head>
+<body>
+  <main class="app">
+    <header class="top">
+      <button class="back" type="button" aria-label="Retour au Salon">←</button>
+    </header>
+    <h1 class="title">QUÊTES</h1>
+    <p class="subtitle">7 catégories • 70 étapes • Récompenses XP</p>
+    <p id="questStatus" class="status" role="status" aria-live="polite">Chargement des quêtes…</p>
+    <div id="questCategories"></div>
+  </main>
+  <script src="firebase-config.js?v=20261107-firebase-functions"></script>
+  <script src="firebase-sdk-loader.js?v=20261107-auth-no-app-check"></script>
+  <script src="tetris_quetes.js?v=20261110-quests-server"></script>
+</body>
+</html>

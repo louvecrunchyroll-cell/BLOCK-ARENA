@@ -1,0 +1,1316 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function ownsPlayer(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function hasLegacyProfile(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId));
+    }
+
+    function legacyProfile(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data;
+    }
+
+    function validPseudo(pseudo) {
+      return pseudo is string && pseudo.matches('^[\\p{L}\\p{N}_-]{3,24}$');
+    }
+
+    function validInitialPlayer(userId) {
+      let legacyExists = hasLegacyProfile(userId);
+      let oldProfile = legacyExists ? legacyProfile(userId) : {};
+      return request.resource.data.keys().hasOnly([
+          'displayName', 'email', 'usernameLower', 'xp', 'level', 'lines',
+          'bestSingleGameLines',
+          'credits', 'battlePass', 'statistics', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'displayName', 'email', 'usernameLower', 'xp', 'level', 'lines',
+          'bestSingleGameLines',
+          'credits', 'battlePass', 'statistics', 'createdAt', 'updatedAt'
+        ])
+        && validPseudo(request.resource.data.displayName)
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.usernameLower is string
+        && request.resource.data.xp is int
+        && request.resource.data.xp >= 0
+        && request.resource.data.xp <= 1000000
+        && request.resource.data.level is int
+        && request.resource.data.level >= 1
+        && request.resource.data.level <= 100
+        && request.resource.data.lines is int
+        && request.resource.data.lines >= 0
+        && request.resource.data.bestSingleGameLines is int
+        && request.resource.data.bestSingleGameLines == 0
+        && request.resource.data.credits is int
+        && request.resource.data.credits >= 0
+        && request.resource.data.battlePass is map
+        && request.resource.data.battlePass.seasonId is string
+        && request.resource.data.battlePass.level is int
+        && request.resource.data.battlePass.level >= 1
+        && request.resource.data.battlePass.level <= 100
+        && request.resource.data.statistics is map
+        && request.resource.data.statistics.gamesPlayed is int
+        && request.resource.data.statistics.gamesPlayed >= 0
+        && request.resource.data.statistics.bestScore is int
+        && request.resource.data.statistics.bestScore >= 0
+        && request.resource.data.createdAt ==
+          (legacyExists && oldProfile.get('createdAt', request.time) != null
+            ? oldProfile.get('createdAt', request.time) : request.time)
+        && request.resource.data.updatedAt == request.time
+        && (
+          legacyExists
+            ? request.resource.data.xp == oldProfile.get('xp', 0)
+              && request.resource.data.lines == oldProfile.get('lines', 0)
+              && request.resource.data.credits == oldProfile.get('credits', 0)
+            : request.resource.data.xp == 0
+              && request.resource.data.lines == 0
+              && request.resource.data.credits == 0
+              && request.resource.data.level == 1
+              && request.resource.data.battlePass.level == 1
+        );
+    }
+
+    function progressionXpThreshold(level) {
+      return level == 1 ? 0
+        : level == 2 ? 300
+        : level == 3 ? 900
+        : level == 4 ? 2400
+        : level >= 5 && level <= 100
+          ? 2400
+            + 1604 * (level - 4)
+            + 185 * (level - 5) * (level - 4) / 2
+            + ((level - 4) - ((level - 4) % 6)) / 6
+          : 1000001;
+    }
+
+    function progressionLevelMatches(xp, level) {
+      return level is int
+        && level >= 1
+        && level <= 100
+        && xp >= progressionXpThreshold(level)
+        && (level == 100 || xp < progressionXpThreshold(level + 1));
+    }
+
+    function validClientGameProgressUpdate(userId) {
+      let oldBattlePass = resource.data.get('battlePass', {});
+      let newBattlePass = request.resource.data.get('battlePass', {});
+      let oldStatistics = resource.data.get('statistics', {});
+      let newStatistics = request.resource.data.get('statistics', {});
+      let gameId = request.resource.data.get('lastGameId', '');
+      let receiptPath = /databases/$(database)/documents/players/$(userId)/processedGames/$(gameId);
+      let receipt = getAfter(receiptPath).data;
+      let reachedLevel = request.resource.data.level;
+      let expectedLevel = oldBattlePass.get('level', 1) > reachedLevel
+        ? oldBattlePass.get('level', 1) : reachedLevel;
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'xp', 'level', 'battlePass', 'lines', 'bestSingleGameLines',
+          'statistics', 'lastGameId', 'updatedAt'
+        ])
+        && request.resource.data.xp is int
+        && request.resource.data.xp >= resource.data.get('xp', 0)
+        && request.resource.data.xp <= 1000000
+        && (
+          progressionLevelMatches(request.resource.data.xp, reachedLevel)
+          || (
+            reachedLevel == resource.data.get('level', 1)
+            && request.resource.data.xp < progressionXpThreshold(reachedLevel)
+          )
+        )
+        && reachedLevel >= resource.data.get('level', 1)
+        && newBattlePass is map
+        && newBattlePass.diff(oldBattlePass).affectedKeys()
+          .hasOnly(['level', 'seasonId'])
+        && newBattlePass.get('seasonId', 'season-1') ==
+          oldBattlePass.get('seasonId', 'season-1')
+        && (
+          newBattlePass.get('seasonId', 'season-1') == 'season-1'
+            ? newBattlePass.get('level', 1) == expectedLevel
+            : newBattlePass == oldBattlePass
+        )
+        && request.resource.data.lines is int
+        && receipt.lines is int
+        && receipt.lines >= 0
+        && receipt.score is int
+        && receipt.score >= 0
+        && request.resource.data.lines ==
+          resource.data.get('lines', 0) + receipt.lines
+        && request.resource.data.bestSingleGameLines ==
+          (resource.data.get('bestSingleGameLines', 0) > receipt.lines
+            ? resource.data.get('bestSingleGameLines', 0) : receipt.lines)
+        && newStatistics is map
+        && newStatistics.diff(oldStatistics).affectedKeys()
+          .hasOnly(['gamesPlayed', 'bestScore'])
+        && newStatistics.get('gamesPlayed', 0) ==
+          oldStatistics.get('gamesPlayed', 0) + 1
+        && newStatistics.get('bestScore', 0) ==
+          (oldStatistics.get('bestScore', 0) > receipt.score
+            ? oldStatistics.get('bestScore', 0) : receipt.score)
+        && request.resource.data.lastGameId is string
+        && request.resource.data.lastGameId.matches('^[A-Za-z0-9_-]{20,64}$')
+        && existsAfter(receiptPath)
+        && receipt.awardedXp == request.resource.data.xp - resource.data.get('xp', 0)
+        && receipt.xpBefore == resource.data.get('xp', 0)
+        && receipt.xpAfter == request.resource.data.xp
+        && receipt.level == reachedLevel
+        && request.resource.data.updatedAt == request.time
+        && receipt.createdAt == request.time;
+    }
+
+    function validClientGameReceipt(userId, gameId) {
+      let playerPath = /databases/$(database)/documents/players/$(userId);
+      let playerBefore = get(playerPath).data;
+      let playerAfter = getAfter(playerPath).data;
+      return gameId.matches('^[A-Za-z0-9_-]{20,64}$')
+        && request.resource.data.keys().hasOnly([
+          'awardedXp', 'xpBefore', 'xpAfter', 'level', 'lines', 'score', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'awardedXp', 'xpBefore', 'xpAfter', 'level', 'lines', 'score', 'createdAt'
+        ])
+        && request.resource.data.awardedXp is int
+        && request.resource.data.awardedXp >= 0
+        && request.resource.data.awardedXp <= 1000000
+        && request.resource.data.xpBefore == playerBefore.get('xp', 0)
+        && request.resource.data.xpAfter == playerAfter.xp
+        && request.resource.data.awardedXp ==
+          request.resource.data.xpAfter - request.resource.data.xpBefore
+        && request.resource.data.level == playerAfter.level
+        && request.resource.data.lines is int
+        && request.resource.data.lines >= 0
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.createdAt == request.time
+        && playerAfter.lastGameId == gameId;
+    }
+
+    function validCreditRewardLevel(level) {
+      return level is int && level in [
+        4, 8, 12, 16, 19, 24, 28, 32, 36, 39, 44, 48, 52,
+        56, 59, 64, 68, 72, 76, 79, 84, 88, 92, 96, 100
+      ];
+    }
+
+    function creditRewardIdMatchesLevel(rewardId, level) {
+      return (rewardId == '4' && level == 4)
+        || (rewardId == '8' && level == 8)
+        || (rewardId == '12' && level == 12)
+        || (rewardId == '16' && level == 16)
+        || (rewardId == '19' && level == 19)
+        || (rewardId == '20' && level == 20)
+        || (rewardId == '24' && level == 24)
+        || (rewardId == '28' && level == 28)
+        || (rewardId == '32' && level == 32)
+        || (rewardId == '36' && level == 36)
+        || (rewardId == '39' && level == 39)
+        || (rewardId == '40' && level == 40)
+        || (rewardId == '44' && level == 44)
+        || (rewardId == '48' && level == 48)
+        || (rewardId == '52' && level == 52)
+        || (rewardId == '56' && level == 56)
+        || (rewardId == '59' && level == 59)
+        || (rewardId == '60' && level == 60)
+        || (rewardId == '64' && level == 64)
+        || (rewardId == '68' && level == 68)
+        || (rewardId == '72' && level == 72)
+        || (rewardId == '76' && level == 76)
+        || (rewardId == '79' && level == 79)
+        || (rewardId == '80' && level == 80)
+        || (rewardId == '84' && level == 84)
+        || (rewardId == '88' && level == 88)
+        || (rewardId == '92' && level == 92)
+        || (rewardId == '96' && level == 96)
+        || (rewardId == '100' && level == 100);
+    }
+
+    function creditRewardLevelFromId(rewardId) {
+      return rewardId == '4' ? 4
+        : rewardId == '8' ? 8
+        : rewardId == '12' ? 12
+        : rewardId == '16' ? 16
+        : rewardId == '19' ? 19
+        : rewardId == '20' ? 20
+        : rewardId == '24' ? 24
+        : rewardId == '28' ? 28
+        : rewardId == '32' ? 32
+        : rewardId == '36' ? 36
+        : rewardId == '39' ? 39
+        : rewardId == '40' ? 40
+        : rewardId == '44' ? 44
+        : rewardId == '48' ? 48
+        : rewardId == '52' ? 52
+        : rewardId == '56' ? 56
+        : rewardId == '59' ? 59
+        : rewardId == '60' ? 60
+        : rewardId == '64' ? 64
+        : rewardId == '68' ? 68
+        : rewardId == '72' ? 72
+        : rewardId == '76' ? 76
+        : rewardId == '79' ? 79
+        : rewardId == '80' ? 80
+        : rewardId == '84' ? 84
+        : rewardId == '88' ? 88
+        : rewardId == '92' ? 92
+        : rewardId == '96' ? 96
+        : rewardId == '100' ? 100 : 0;
+    }
+
+    function creditRewardAlreadyClaimed(level, levels) {
+      return levels.hasAny([level])
+        || (level == 19 && levels.hasAny([20]))
+        || (level == 39 && levels.hasAny([40]))
+        || (level == 59 && levels.hasAny([60]))
+        || (level == 79 && levels.hasAny([80]));
+    }
+
+    function battlePassXpThreshold(level) {
+      return level == 1 ? 0
+        : level == 2 ? 300
+        : level == 3 ? 900
+        : level == 4 ? 2400
+        : level == 5 ? 4004
+        : level == 6 ? 5793
+        : level == 7 ? 7767
+        : level == 8 ? 9926
+        : level == 9 ? 12270
+        : level == 10 ? 14800
+        : level == 11 ? 17514
+        : level == 12 ? 20413
+        : level == 13 ? 23497
+        : level == 14 ? 26766
+        : level == 15 ? 30220
+        : level == 16 ? 33860
+        : level == 17 ? 37684
+        : level == 18 ? 41693
+        : level == 19 ? 45887
+        : level == 20 ? 50266
+        : level == 21 ? 54830
+        : level == 22 ? 59580
+        : level == 23 ? 64514
+        : level == 24 ? 69633
+        : level == 25 ? 74937
+        : level == 26 ? 80426
+        : level == 27 ? 86100
+        : level == 28 ? 91960
+        : level == 29 ? 98004
+        : level == 30 ? 104233
+        : level == 31 ? 110647
+        : level == 32 ? 117246
+        : level == 33 ? 124030
+        : level == 34 ? 131000
+        : level == 35 ? 138154
+        : level == 36 ? 145493
+        : level == 37 ? 153017
+        : level == 38 ? 160726
+        : level == 39 ? 168620
+        : level == 40 ? 176700
+        : level == 41 ? 184964
+        : level == 42 ? 193413
+        : level == 43 ? 202047
+        : level == 44 ? 210866
+        : level == 45 ? 219870
+        : level == 47 ? 238434
+        : level == 48 ? 247993
+        : level == 50 ? 267666
+        : level == 52 ? 288080
+        : level == 53 ? 298564
+        : level == 55 ? 320087
+        : level == 56 ? 331126
+        : level == 58 ? 353760
+        : level == 59 ? 365354
+        : level == 60 ? 377133
+        : level == 63 ? 413580
+        : level == 64 ? 426100
+        : level == 65 ? 438804
+        : level == 67 ? 464767
+        : level == 68 ? 478026
+        : level == 70 ? 505100
+        : level == 72 ? 532913
+        : level == 73 ? 547097
+        : level == 75 ? 576020
+        : level == 76 ? 590760
+        : level == 78 ? 620793
+        : level == 79 ? 636087
+        : level == 80 ? 651566
+        : level == 83 ? 699114
+        : level == 84 ? 715333
+        : level == 85 ? 731737
+        : level == 87 ? 765100
+        : level == 88 ? 782060
+        : level == 90 ? 816533
+        : level == 92 ? 851746
+        : level == 93 ? 869630
+        : level == 95 ? 905954
+        : level == 96 ? 924393
+        : level == 97 ? 943017
+        : level == 98 ? 961826
+        : level == 99 ? 980820
+        : level == 100 ? 1000000 : 1000001;
+    }
+
+    function eligibleCreditReward(player, level) {
+      let battlePass = player.get('battlePass', {});
+      return battlePass is map
+        && battlePass.get('seasonId', 'season-1') == 'season-1'
+        && validCreditRewardLevel(level)
+        && player.get('xp', -1) is int
+        && player.get('xp', -1) <= 1000000
+        && player.get('xp', -1) >= battlePassXpThreshold(level);
+    }
+
+    function validCreditRewardLevels(levels) {
+      return levels is list
+        && levels.toSet().size() == levels.size()
+        && levels.hasOnly([
+          4, 8, 12, 16, 19, 20, 24, 28, 32, 36, 39, 40, 44, 48, 52,
+          56, 59, 60, 64, 68, 72, 76, 79, 80, 84, 88, 92, 96, 100
+        ]);
+    }
+
+    function creditRewardStatePath(userId) {
+      return /databases/$(database)/documents/players/$(userId)/battlePassSeasons/season-1;
+    }
+
+    function creditRewardReceiptPath(userId, rewardId) {
+      return /databases/$(database)/documents/players/$(userId)/battlePassSeasons/season-1/rewards/$(rewardId);
+    }
+
+    function validCreditRewardPlayerUpdate(userId) {
+      let oldBattlePass = resource.data.get('battlePass', {});
+      let newBattlePass = request.resource.data.get('battlePass', {});
+      let rewardId = newBattlePass.get('lastCreditRewardLevel', '');
+      let level = creditRewardLevelFromId(rewardId);
+      let statePath = creditRewardStatePath(userId);
+      let stateBefore = exists(statePath) ? get(statePath).data : {};
+      let oldLevels = stateBefore.get('creditRewardLevels', []);
+      let receiptPath = creditRewardReceiptPath(userId, rewardId);
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'credits', 'battlePass', 'updatedAt'
+        ])
+        && request.resource.data.credits is int
+        && request.resource.data.credits == resource.data.get('credits', 0) + 100
+        && newBattlePass is map
+        && newBattlePass.diff(oldBattlePass).affectedKeys()
+          .hasOnly(['lastCreditRewardLevel'])
+        && newBattlePass.get('seasonId', '') == oldBattlePass.get('seasonId', '')
+        && newBattlePass.get('level', 0) == oldBattlePass.get('level', 0)
+        && validCreditRewardLevel(level)
+        && eligibleCreditReward(resource.data, level)
+        && validCreditRewardLevels(oldLevels)
+        && !creditRewardAlreadyClaimed(level, oldLevels)
+        && existsAfter(statePath)
+        && validCreditRewardLevels(getAfter(statePath).data.creditRewardLevels)
+        && getAfter(statePath).data.creditRewardLevels.hasAll(oldLevels)
+        && getAfter(statePath).data.creditRewardLevels.size() == oldLevels.size() + 1
+        && getAfter(statePath).data.creditRewardLevels.hasAny([level])
+        && getAfter(statePath).data.updatedAt == request.time
+        && existsAfter(receiptPath)
+        && getAfter(receiptPath).data.level == level
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validCreditRewardStateWrite(userId, oldLevels) {
+      let playerPath = /databases/$(database)/documents/players/$(userId);
+      let playerBefore = get(playerPath).data;
+      let playerAfter = getAfter(playerPath).data;
+      let rewardId = playerAfter.get('battlePass', {}).get('lastCreditRewardLevel', '');
+      let level = creditRewardLevelFromId(rewardId);
+      let receiptPath = creditRewardReceiptPath(userId, rewardId);
+      return request.resource.data.keys().hasOnly([
+          'seasonId', 'creditRewardLevels', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'seasonId', 'creditRewardLevels', 'updatedAt'
+        ])
+        && request.resource.data.seasonId == 'season-1'
+        && validCreditRewardLevels(oldLevels)
+        && validCreditRewardLevels(request.resource.data.creditRewardLevels)
+        && request.resource.data.creditRewardLevels.hasAll(oldLevels)
+        && request.resource.data.creditRewardLevels.size() == oldLevels.size() + 1
+        && request.resource.data.creditRewardLevels.hasAny([level])
+        && validCreditRewardLevel(level)
+        && eligibleCreditReward(playerBefore, level)
+        && playerAfter.credits == playerBefore.get('credits', 0) + 100
+        && playerAfter.updatedAt == request.time
+        && existsAfter(receiptPath)
+        && getAfter(receiptPath).data.level == level
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validCreditRewardReceiptCreate(userId, seasonId, rewardId) {
+      let playerPath = /databases/$(database)/documents/players/$(userId);
+      let playerBefore = get(playerPath).data;
+      let playerAfter = getAfter(playerPath).data;
+      let level = request.resource.data.level;
+      let statePath = creditRewardStatePath(userId);
+      let stateBefore = exists(statePath) ? get(statePath).data : {};
+      let oldLevels = stateBefore.get('creditRewardLevels', []);
+      return seasonId == 'season-1'
+        && validCreditRewardLevel(level)
+        && creditRewardIdMatchesLevel(rewardId, level)
+        && request.resource.data.keys().hasOnly([
+          'level', 'credits', 'seasonId', 'claimedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'level', 'credits', 'seasonId', 'claimedAt'
+        ])
+        && request.resource.data.credits == 100
+        && request.resource.data.seasonId == 'season-1'
+        && request.resource.data.claimedAt == request.time
+        && validCreditRewardLevels(oldLevels)
+        && !creditRewardAlreadyClaimed(level, oldLevels)
+        && eligibleCreditReward(playerBefore, level)
+        && playerAfter.credits == playerBefore.get('credits', 0) + 100
+        && creditRewardIdMatchesLevel(
+          playerAfter.battlePass.lastCreditRewardLevel, level
+        )
+        && playerAfter.updatedAt == request.time
+        && existsAfter(statePath)
+        && getAfter(statePath).data.creditRewardLevels.hasAll(oldLevels)
+        && getAfter(statePath).data.creditRewardLevels.size() == oldLevels.size() + 1
+        && getAfter(statePath).data.creditRewardLevels.hasAny([level])
+        && getAfter(statePath).data.updatedAt == request.time;
+    }
+
+    function battlePassSkinLevel(itemId) {
+      return itemId == 'redbull' ? 5
+        : itemId == 'skin-02' ? 10
+        : itemId == 'skin-03' ? 15
+        : itemId == 'skin-04' ? 20
+        : itemId == 'skin-05' ? 25
+        : itemId == 'skin-06' ? 30
+        : itemId == 'skin-07' ? 35
+        : itemId == 'skin-08' ? 40
+        : itemId == 'skin-09' ? 45
+        : itemId == 'skin-10' ? 50
+        : itemId == 'skin-11' ? 55
+        : itemId == 'skin-12' ? 60
+        : itemId == 'skin-13' ? 65
+        : itemId == 'skin-14' ? 70
+        : itemId == 'skin-15' ? 75
+        : itemId == 'skin-16' ? 80
+        : itemId == 'skin-17' ? 85
+        : itemId == 'skin-18' ? 90
+        : itemId == 'skin-19' ? 95
+        : itemId == 'skin-20' ? 99 : 0;
+    }
+
+    function battlePassSkinName(itemId) {
+      return itemId == 'redbull' ? 'Red Bull'
+        : itemId == 'skin-02' ? 'Skin 2'
+        : itemId == 'skin-03' ? 'Skin 3'
+        : itemId == 'skin-04' ? 'Skin 4'
+        : itemId == 'skin-05' ? 'Skin 5'
+        : itemId == 'skin-06' ? 'Skin 6'
+        : itemId == 'skin-07' ? 'Skin 7'
+        : itemId == 'skin-08' ? 'Skin 8'
+        : itemId == 'skin-09' ? 'Skin 9'
+        : itemId == 'skin-10' ? 'Skin 10'
+        : itemId == 'skin-11' ? 'Skin 11'
+        : itemId == 'skin-12' ? 'Skin 12'
+        : itemId == 'skin-13' ? 'Skin 13'
+        : itemId == 'skin-14' ? 'Skin 14'
+        : itemId == 'skin-15' ? 'Skin 15'
+        : itemId == 'skin-16' ? 'Skin 16'
+        : itemId == 'skin-17' ? 'Skin 17'
+        : itemId == 'skin-18' ? 'Skin 18'
+        : itemId == 'skin-19' ? 'Skin 19'
+        : itemId == 'skin-20' ? 'Skin 20' : '';
+    }
+
+    function eligibleBattlePassSkin(userId, itemId) {
+      let player = get(
+        /databases/$(database)/documents/players/$(userId)
+      ).data;
+      let level = battlePassSkinLevel(itemId);
+      return level >= 5
+        && player.get('battlePass', {}).get('seasonId', 'season-1') == 'season-1'
+        && player.get('xp', -1) is int
+        && player.get('xp', -1) <= 1000000
+        && player.get('xp', -1) >= battlePassXpThreshold(level);
+    }
+
+    function validBattlePassSkinFields(itemId) {
+      let level = battlePassSkinLevel(itemId);
+      return request.resource.data.level == level
+        && request.resource.data.itemId == itemId
+        && request.resource.data.type == 'skin'
+        && request.resource.data.name == battlePassSkinName(itemId)
+        && request.resource.data.source == 'battle-pass'
+        && request.resource.data.seasonId == 'season-1'
+        && request.resource.data.unlockedAt == request.time;
+    }
+
+    function validBattlePassSkinCreate(userId, itemId) {
+      return eligibleBattlePassSkin(userId, itemId)
+        && request.resource.data.keys().hasOnly([
+          'level', 'itemId', 'type', 'name', 'source', 'seasonId', 'unlockedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'level', 'itemId', 'type', 'name', 'source', 'seasonId', 'unlockedAt'
+        ])
+        && validBattlePassSkinFields(itemId);
+    }
+
+    function validBattlePassSkinRepair(userId, itemId) {
+      return resource.data.get('type', '') != 'skin'
+        && eligibleBattlePassSkin(userId, itemId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'level', 'itemId', 'type', 'name', 'source', 'seasonId', 'unlockedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'level', 'itemId', 'type', 'name', 'source', 'seasonId', 'unlockedAt'
+        ])
+        && validBattlePassSkinFields(itemId);
+    }
+
+    function battlePassLoadingScreenLevel(itemId) {
+      return itemId == 'loading-screen-bp-01' ? 2
+        : itemId == 'loading-screen-bp-02' ? 6
+        : itemId == 'loading-screen-bp-03' ? 11
+        : itemId == 'loading-screen-bp-04' ? 17
+        : itemId == 'loading-screen-bp-05' ? 21
+        : itemId == 'loading-screen-bp-06' ? 26
+        : itemId == 'loading-screen-bp-07' ? 31
+        : itemId == 'loading-screen-bp-08' ? 37
+        : itemId == 'loading-screen-bp-09' ? 41 : 0;
+    }
+
+    function battlePassLoadingScreenName(itemId) {
+      return itemId == 'loading-screen-bp-01' ? 'Tétris néon sous un ciel cosmique'
+        : itemId == 'loading-screen-bp-02' ? 'Trône néon aux blocs violets'
+        : itemId == 'loading-screen-bp-03' ? 'Tempête néon et vortex de Tétris'
+        : itemId == 'loading-screen-bp-04' ? 'Numéro 93 en style course grunge'
+        : itemId == 'loading-screen-bp-05' ? 'Forêt enchantée aux blocs néon'
+        : itemId == 'loading-screen-bp-06' ? 'Collage lumineux de blocs Tetris'
+        : itemId == 'loading-screen-bp-07' ? 'Coffret de Saint-Valentin dans les nuages'
+        : itemId == 'loading-screen-bp-08' ? 'Blocs Tetris métalliques Red Bull'
+        : itemId == 'loading-screen-bp-09' ? 'Arcade Tetris festif et coloré' : '';
+    }
+
+    function battlePassLoadingScreenImage(itemId) {
+      return itemId == 'loading-screen-bp-01'
+          ? '/Batll%20Pass%20ecran%20chargement/T%C3%A9tris%20n%C3%A9on%20sous%20un%20ciel%20cosmique.png'
+        : itemId == 'loading-screen-bp-02'
+          ? '/Batll%20Pass%20ecran%20chargement/Tr%C3%B4ne%20n%C3%A9on%20aux%20blocs%20violets.png'
+        : itemId == 'loading-screen-bp-03'
+          ? '/Batll%20Pass%20ecran%20chargement/Temp%C3%AAte%20n%C3%A9on%20et%20vortex%20de%20T%C3%A9tris.png'
+        : itemId == 'loading-screen-bp-04'
+          ? '/Batll%20Pass%20ecran%20chargement/Num%C3%A9ro%2093%20en%20style%20course%20grunge.png'
+        : itemId == 'loading-screen-bp-05'
+          ? '/Batll%20Pass%20ecran%20chargement/For%C3%AAt%20enchant%C3%A9e%20aux%20blocs%20n%C3%A9on.png'
+        : itemId == 'loading-screen-bp-06'
+          ? '/Batll%20Pass%20ecran%20chargement/Collage%20lumineux%20de%20blocs%20Tetris.png'
+        : itemId == 'loading-screen-bp-07'
+          ? '/Batll%20Pass%20ecran%20chargement/Coffret%20de%20Saint-Valentin%20dans%20les%20nuages.png'
+        : itemId == 'loading-screen-bp-08'
+          ? '/Batll%20Pass%20ecran%20chargement/Blocs%20Tetris%20m%C3%A9talliques%20Red%20Bull.png'
+        : itemId == 'loading-screen-bp-09'
+          ? '/Batll%20Pass%20ecran%20chargement/Arcade%20Tetris%20festif%20et%20color%C3%A9.png'
+          : '';
+    }
+
+    function validBattlePassLoadingScreenCreate(userId, itemId) {
+      let level = battlePassLoadingScreenLevel(itemId);
+      let player = get(
+        /databases/$(database)/documents/players/$(userId)
+      ).data;
+      return level >= 1
+        && player.get('battlePass', {}).get('seasonId', 'season-1') == 'season-1'
+        && player.get('xp', -1) is int
+        && player.get('xp', -1) <= 1000000
+        && player.get('xp', -1) >= battlePassXpThreshold(level)
+        && request.resource.data.keys().hasOnly([
+          'level', 'itemId', 'type', 'category', 'name', 'imageUrl',
+          'source', 'seasonId', 'unlockedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'level', 'itemId', 'type', 'category', 'name', 'imageUrl',
+          'source', 'seasonId', 'unlockedAt'
+        ])
+        && request.resource.data.level == level
+        && request.resource.data.itemId == itemId
+        && request.resource.data.type == 'loading-screen'
+        && request.resource.data.category == 'loading-screen'
+        && request.resource.data.name == battlePassLoadingScreenName(itemId)
+        && request.resource.data.imageUrl == battlePassLoadingScreenImage(itemId)
+        && request.resource.data.source == 'battle-pass'
+        && request.resource.data.seasonId == 'season-1'
+        && request.resource.data.unlockedAt == request.time;
+    }
+
+    function battlePassMusicLevel(itemId) {
+      return itemId == 'music-bp-01' ? 1
+        : itemId == 'music-bp-02' ? 9
+        : itemId == 'music-bp-03' ? 14
+        : itemId == 'music-bp-04' ? 16
+        : itemId == 'music-bp-05' ? 22
+        : itemId == 'music-bp-06' ? 29
+        : itemId == 'music-bp-07' ? 34
+        : itemId == 'music-bp-08' ? 39
+        : itemId == 'music-bp-09' ? 42 : 0;
+    }
+
+    function battlePassMusicName(itemId) {
+      return itemId == 'music-bp-01' ? 'High Score'
+        : itemId == 'music-bp-02' ? 'Pixel Rush'
+        : itemId == 'music-bp-03' ? 'Neon Sprint'
+        : itemId == 'music-bp-04' ? 'Arcade Pulse'
+        : itemId == 'music-bp-05' ? 'Last Drop'
+        : itemId == 'music-bp-06' ? 'Terre Calme'
+        : itemId == 'music-bp-07' ? 'Nouvel Élan'
+        : itemId == 'music-bp-08' ? 'Optimisme'
+        : itemId == 'music-bp-09' ? 'Triomphe' : '';
+    }
+
+    function battlePassMusicAudioUrl(itemId) {
+      return itemId == 'music-bp-01'
+          ? '/Batll%20Pass%20musique/17-high-scoremp3.mp3'
+        : itemId == 'music-bp-02'
+          ? '/Batll%20Pass%20musique/19-sfx.mp3'
+        : itemId == 'music-bp-03'
+          ? '/Batll%20Pass%20musique/20-sfx.mp3'
+        : itemId == 'music-bp-04'
+          ? '/Batll%20Pass%20musique/23-sfx.mp3'
+        : itemId == 'music-bp-05'
+          ? '/Batll%20Pass%20musique/33-sfx.mp3'
+        : itemId == 'music-bp-06'
+          ? '/Batll%20Pass%20musique/harmonious-earth_88300.mp3'
+        : itemId == 'music-bp-07'
+          ? '/Batll%20Pass%20musique/inspiring-business-vibes_88287.mp3'
+        : itemId == 'music-bp-08'
+          ? '/Batll%20Pass%20musique/optimistic-professionalism_88726.mp3'
+        : itemId == 'music-bp-09'
+          ? '/Batll%20Pass%20musique/path-to-triumph_88293.mp3'
+          : '';
+    }
+
+    function validBattlePassMusicCreate(userId, itemId) {
+      let level = battlePassMusicLevel(itemId);
+      let player = get(
+        /databases/$(database)/documents/players/$(userId)
+      ).data;
+      return level >= 1
+        && player.get('battlePass', {}).get('seasonId', 'season-1') == 'season-1'
+        && player.get('xp', -1) is int
+        && player.get('xp', -1) <= 1000000
+        && player.get('xp', -1) >= battlePassXpThreshold(level)
+        && request.resource.data.keys().hasOnly([
+          'level', 'itemId', 'type', 'category', 'name', 'audioUrl', 'imageUrl',
+          'source', 'seasonId', 'unlockedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'level', 'itemId', 'type', 'category', 'name', 'audioUrl', 'imageUrl',
+          'source', 'seasonId', 'unlockedAt'
+        ])
+        && request.resource.data.level == level
+        && request.resource.data.itemId == itemId
+        && request.resource.data.type == 'music'
+        && request.resource.data.category == 'music'
+        && request.resource.data.name == battlePassMusicName(itemId)
+        && request.resource.data.audioUrl == battlePassMusicAudioUrl(itemId)
+        && request.resource.data.imageUrl ==
+          '/Batll%20Pass%20musique/Ic%C3%B4ne%20n%C3%A9on%20de%20notes%20musicales.png'
+        && request.resource.data.source == 'battle-pass'
+        && request.resource.data.seasonId == 'season-1'
+        && request.resource.data.unlockedAt == request.time;
+    }
+
+    function battlePassXpBoostLevel(itemId) {
+      return itemId == 'xp-boost-level-3' ? 3
+        : itemId == 'xp-boost-level-7' ? 7
+        : itemId == 'xp-boost-level-13' ? 13
+        : itemId == 'xp-boost-level-18' ? 18
+        : itemId == 'xp-boost-level-23' ? 23
+        : itemId == 'xp-boost-level-28' ? 27
+        : itemId == 'xp-boost-level-33' ? 33
+        : itemId == 'xp-boost-level-38' ? 38
+        : itemId == 'xp-boost-level-43' ? 43
+        : itemId == 'xp-boost-level-48' ? 47
+        : itemId == 'xp-boost-level-53' ? 53
+        : itemId == 'xp-boost-level-58' ? 58
+        : itemId == 'xp-boost-level-63' ? 63
+        : itemId == 'xp-boost-level-68' ? 67
+        : itemId == 'xp-boost-level-73' ? 73
+        : itemId == 'xp-boost-level-78' ? 78
+        : itemId == 'xp-boost-level-83' ? 83
+        : itemId == 'xp-boost-level-88' ? 87
+        : itemId == 'xp-boost-level-93' ? 93
+        : itemId == 'xp-boost-level-98' ? 98
+        : itemId == 'xp-boost-level-100' ? 97 : 0;
+    }
+
+    function validBattlePassXpBoostCreate(userId, itemId) {
+      let level = battlePassXpBoostLevel(itemId);
+      let player = get(
+        /databases/$(database)/documents/players/$(userId)
+      ).data;
+      return level >= 3
+        && player.get('battlePass', {}).get('seasonId', 'season-1') == 'season-1'
+        && player.get('xp', -1) is int
+        && player.get('xp', -1) <= 1000000
+        && player.get('xp', -1) >= battlePassXpThreshold(level)
+        && request.resource.data.keys().hasOnly([
+          'level', 'itemId', 'type', 'category', 'name', 'durationMs',
+          'bonusXp', 'imageUrl', 'quantity', 'usedQuantity', 'source',
+          'seasonId', 'unlockedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'level', 'itemId', 'type', 'category', 'name', 'durationMs',
+          'bonusXp', 'imageUrl', 'quantity', 'usedQuantity', 'source',
+          'seasonId', 'unlockedAt'
+        ])
+        && request.resource.data.level == level
+        && request.resource.data.itemId == itemId
+        && request.resource.data.type == 'xp-boost'
+        && request.resource.data.category == 'xp-boost'
+        && request.resource.data.name == 'Boost XP +5'
+        && request.resource.data.durationMs == 1200000
+        && request.resource.data.bonusXp == 5
+        && request.resource.data.imageUrl ==
+          '/boost%20xp/Embl%C3%A8me%20XP%20dor%C3%A9%20X2%20n%C3%A9on.png'
+        && request.resource.data.quantity == 1
+        && request.resource.data.usedQuantity == 0
+        && request.resource.data.source == 'battle-pass'
+        && request.resource.data.seasonId == 'season-1'
+        && request.resource.data.unlockedAt == request.time;
+    }
+
+    function validXpBoostInventoryUseUpdate() {
+      let quantity = resource.data.get('quantity', 1);
+      let usedQuantity = resource.data.get('usedQuantity', 0);
+      return resource.data.get('type', '') == 'xp-boost'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['usedQuantity', 'updatedAt'])
+        && quantity is int
+        && usedQuantity is int
+        && quantity >= 1
+        && usedQuantity >= 0
+        && usedQuantity < quantity
+        && request.resource.data.usedQuantity == usedQuantity + 1
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validXpBoostSelection(userId) {
+      let itemId = request.resource.data.get('selectedBoostId', '');
+      let itemPath = /databases/$(database)/documents/players/$(userId)/inventory/$(itemId);
+      let item = exists(itemPath) ? get(itemPath).data : {};
+      let quantity = item.get('quantity', 1);
+      let usedQuantity = item.get('usedQuantity', 0);
+      return itemId is string
+        && item.get('type', '') == 'xp-boost'
+        && quantity is int
+        && usedQuantity is int
+        && quantity >= 1
+        && usedQuantity >= 0
+        && usedQuantity < quantity
+        && request.resource.data.updatedAt == request.time
+        && (
+          (
+            !exists(/databases/$(database)/documents/players/$(userId)/xpBoostState/current)
+            && request.resource.data.keys().hasOnly(['selectedBoostId', 'updatedAt'])
+          )
+          || (
+            (
+              resource.data.get('activeBoostId', null) == null
+              || (
+                resource.data.get('activeExpiresAt', null) is timestamp
+                && resource.data.activeExpiresAt <= request.time
+              )
+            )
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['selectedBoostId', 'updatedAt'])
+          )
+        );
+    }
+
+    function validXpBoostActivation(userId) {
+      let itemId = resource.data.get('selectedBoostId', '');
+      let itemPath = /databases/$(database)/documents/players/$(userId)/inventory/$(itemId);
+      let itemBefore = get(itemPath).data;
+      let itemAfter = getAfter(itemPath).data;
+      let usedQuantity = itemBefore.get('usedQuantity', 0);
+      return itemId is string
+        && itemBefore.get('type', '') == 'xp-boost'
+        && itemAfter.usedQuantity == usedQuantity + 1
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'selectedBoostId', 'activeBoostId', 'activeRemainingMs',
+          'activeStartedAt', 'activeExpiresAt', 'activeSessionId',
+          'pausedSessionId', 'updatedAt'
+        ])
+        && request.resource.data.selectedBoostId == null
+        && request.resource.data.activeBoostId == itemId
+        && request.resource.data.activeRemainingMs == 1200000
+        && request.resource.data.activeStartedAt is timestamp
+        && request.resource.data.activeStartedAt <= request.time
+        && request.resource.data.activeStartedAt >= request.time - duration.value(5, 's')
+        && request.resource.data.activeExpiresAt is timestamp
+        && request.resource.data.activeExpiresAt ==
+          request.resource.data.activeStartedAt + duration.value(20, 'm')
+        && request.resource.data.activeSessionId is string
+        && request.resource.data.activeSessionId.matches('^[A-Za-z0-9_-]{20,64}$')
+        && request.resource.data.pausedSessionId == null
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validXpBoostFinish() {
+      return resource.data.get('activeBoostId', null) is string
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'activeBoostId', 'activeRemainingMs', 'activeStartedAt',
+          'activeExpiresAt', 'activeSessionId', 'pausedSessionId',
+          'updatedAt'
+        ])
+        && request.resource.data.activeBoostId == null
+        && request.resource.data.activeRemainingMs == 0
+        && request.resource.data.activeStartedAt == null
+        && request.resource.data.activeExpiresAt == null
+        && request.resource.data.activeSessionId == null
+        && request.resource.data.pausedSessionId == null
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validBloc1PurchaseCreate(userId, itemId) {
+      let playerPath = /databases/$(database)/documents/players/$(userId);
+      let previousCredits = get(playerPath).data.get('credits', 0);
+      let updatedPlayer = getAfter(playerPath).data;
+      return itemId == 'loading-screen-bloc-1'
+        && request.resource.data.keys().hasOnly([
+          'itemId', 'name', 'type', 'category', 'imageUrl', 'source',
+          'price', 'purchasedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'itemId', 'name', 'type', 'category', 'imageUrl', 'source',
+          'price', 'purchasedAt'
+        ])
+        && request.resource.data.itemId == itemId
+        && request.resource.data.name == 'Bloc en formation'
+        && request.resource.data.type == 'loading-screen'
+        && request.resource.data.category == 'loading-screen'
+        && request.resource.data.imageUrl ==
+          '/boutique%201/Blocs%20Tetris%20m%C3%A9talliques%20sur%20plan%20quadrill%C3%A9.png'
+        && request.resource.data.source == 'shop'
+        && request.resource.data.price == 300
+        && request.resource.data.purchasedAt == request.time
+        && previousCredits is int
+        && previousCredits >= 300
+        && updatedPlayer.credits == previousCredits - 300
+        && updatedPlayer.updatedAt == request.time;
+    }
+
+    function validBloc1PurchasePlayerUpdate(userId) {
+      let itemPath = /databases/$(database)/documents/players/$(userId)/inventory/loading-screen-bloc-1;
+      let previousCredits = resource.data.get('credits', 0);
+      let updatedItem = getAfter(itemPath).data;
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['credits', 'updatedAt'])
+        && request.resource.data.credits is int
+        && previousCredits is int
+        && previousCredits >= 300
+        && request.resource.data.credits == previousCredits - 300
+        && request.resource.data.updatedAt == request.time
+        && existsAfter(itemPath)
+        && updatedItem.itemId == 'loading-screen-bloc-1'
+        && updatedItem.name == 'Bloc en formation'
+        && updatedItem.type == 'loading-screen'
+        && updatedItem.category == 'loading-screen'
+        && updatedItem.imageUrl ==
+          '/boutique%201/Blocs%20Tetris%20m%C3%A9talliques%20sur%20plan%20quadrill%C3%A9.png'
+        && updatedItem.source == 'shop'
+        && updatedItem.price == 300
+        && updatedItem.purchasedAt == request.time;
+    }
+
+    function validPseudoChange(userId) {
+      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+      let hasPreviousChange = resource.data.keys().hasAny(['lastPseudoChangeAt']);
+      let oldUsernameLower = resource.data.get('usernameLower', '');
+      return changedKeys.hasOnly([
+          'displayName', 'usernameLower', 'lastPseudoChangeAt', 'updatedAt'
+        ])
+        && validPseudo(request.resource.data.displayName)
+        && request.resource.data.displayName != resource.data.get('displayName', '')
+        && request.resource.data.usernameLower is string
+        && request.resource.data.usernameLower == request.resource.data.displayName.lower()
+        && request.resource.data.lastPseudoChangeAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && getAfter(
+          /databases/$(database)/documents/usernames/$(request.resource.data.usernameLower)
+        ).data.uid == userId
+        && getAfter(
+          /databases/$(database)/documents/publicProfiles/$(userId)
+        ).data.displayName == request.resource.data.displayName
+        && getAfter(
+          /databases/$(database)/documents/publicProfiles/$(userId)
+        ).data.usernameLower == request.resource.data.usernameLower
+        && getAfter(
+          /databases/$(database)/documents/leaderboards/single-game/entries/$(userId)
+        ).data.displayName == request.resource.data.displayName
+        && getAfter(
+          /databases/$(database)/documents/leaderboards/single-game/entries/$(userId)
+        ).data.usernameLower == request.resource.data.usernameLower
+        && (
+          oldUsernameLower == ''
+          || oldUsernameLower == request.resource.data.usernameLower
+          || !existsAfter(
+            /databases/$(database)/documents/usernames/$(oldUsernameLower)
+          )
+        )
+        && (
+          !hasPreviousChange
+          || (
+            resource.data.lastPseudoChangeAt is timestamp
+            && request.time >= resource.data.lastPseudoChangeAt + duration.value(7, 'd')
+          )
+        );
+    }
+
+    function validPreferences() {
+      let equippedLoadingScreen = request.resource.data.get('equippedLoadingScreen', 'none');
+      return request.resource.data.keys().hasOnly([
+          'equippedSkin', 'equippedMusic', 'equippedLoadingScreen', 'settings', 'updatedAt'
+        ])
+        && request.resource.data.equippedSkin is string
+        && (
+          request.resource.data.equippedSkin == 'default'
+          || (
+            battlePassSkinLevel(request.resource.data.equippedSkin) >= 5
+            && exists(/databases/$(database)/documents/players/$(request.auth.uid)/inventory/$(request.resource.data.equippedSkin))
+          )
+        )
+        && request.resource.data.equippedMusic is string
+        && (
+          request.resource.data.equippedMusic == 'none'
+          || (
+            exists(/databases/$(database)/documents/players/$(request.auth.uid)/inventory/$(request.resource.data.equippedMusic))
+            && get(/databases/$(database)/documents/players/$(request.auth.uid)/inventory/$(request.resource.data.equippedMusic)).data.get('type', '') == 'music'
+          )
+        )
+        && equippedLoadingScreen is string
+        && (
+          equippedLoadingScreen == 'none'
+          || (
+            exists(/databases/$(database)/documents/players/$(request.auth.uid)/inventory/$(equippedLoadingScreen))
+            && get(/databases/$(database)/documents/players/$(request.auth.uid)/inventory/$(equippedLoadingScreen)).data.get('type', '') == 'loading-screen'
+          )
+        )
+        && request.resource.data.settings is map
+        && request.resource.data.settings.music is bool
+        && request.resource.data.settings.musicVolume is number
+        && request.resource.data.settings.musicVolume >= 0
+        && request.resource.data.settings.musicVolume <= 100
+        && request.resource.data.settings.blocksVolume is number
+        && request.resource.data.settings.blocksVolume >= 0
+        && request.resource.data.settings.blocksVolume <= 100
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validNewFriendRequest(fromUid, toUid) {
+      return fromUid != toUid
+        && exists(/databases/$(database)/documents/players/$(fromUid))
+        && exists(/databases/$(database)/documents/players/$(toUid))
+        && !exists(/databases/$(database)/documents/players/$(fromUid)/blocked/$(toUid))
+        && !exists(/databases/$(database)/documents/players/$(toUid)/blocked/$(fromUid))
+        && !exists(/databases/$(database)/documents/players/$(fromUid)/friends/$(toUid))
+        && !exists(/databases/$(database)/documents/players/$(toUid)/friends/$(fromUid))
+        && request.resource.data.keys().hasOnly([
+          'fromUid', 'toUid', 'status', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.fromUid == fromUid
+        && request.resource.data.toUid == toUid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validFriendRequestResponse(fromUid, toUid) {
+      return request.resource.data.keys().hasOnly([
+          'fromUid', 'toUid', 'status', 'createdAt', 'updatedAt', 'respondedAt'
+        ])
+        && request.resource.data.fromUid == fromUid
+        && request.resource.data.toUid == toUid
+        && resource.data.status == 'pending'
+        && request.resource.data.status in ['accepted', 'rejected']
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.respondedAt == request.time;
+    }
+
+    function acceptedFriendRequest(userId, friendId) {
+      return getAfter(
+          /databases/$(database)/documents/players/$(userId)/friendRequestsReceived/$(friendId)
+        ).data.status == 'accepted'
+        || getAfter(
+          /databases/$(database)/documents/players/$(friendId)/friendRequestsReceived/$(userId)
+        ).data.status == 'accepted';
+    }
+
+    function validLeaderboardEntry(userId) {
+      let player = getAfter(
+        /databases/$(database)/documents/players/$(userId)
+      ).data;
+      return request.resource.data.keys().hasOnly([
+          'uid', 'displayName', 'usernameLower', 'lines', 'bestScore', 'level', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid', 'displayName', 'usernameLower', 'lines', 'bestScore', 'level', 'updatedAt'
+        ])
+        && request.resource.data.uid == userId
+        && (
+          player.keys().hasAny(['displayName'])
+            ? request.resource.data.displayName == player.displayName
+            : request.resource.data.displayName == 'Joueur'
+        )
+        && (
+          player.keys().hasAny(['usernameLower'])
+            ? request.resource.data.usernameLower == player.usernameLower
+            : request.resource.data.usernameLower == 'joueur'
+        )
+        && request.resource.data.lines == player.get('bestSingleGameLines', 0)
+        && request.resource.data.bestScore == player.statistics.bestScore
+        && request.resource.data.level == player.level
+        && request.resource.data.lines is int
+        && request.resource.data.lines >= 0
+        && request.resource.data.bestScore is int
+        && request.resource.data.bestScore >= 0
+        && request.resource.data.level is int
+        && request.resource.data.level >= 1
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    // Player profile and idempotent game results
+    match /players/{userId} {
+      allow read: if ownsPlayer(userId);
+      allow create: if ownsPlayer(userId) && validInitialPlayer(userId);
+      allow update: if ownsPlayer(userId)
+        && (
+          validClientGameProgressUpdate(userId)
+          || validPseudoChange(userId)
+          || validCreditRewardPlayerUpdate(userId)
+          || validBloc1PurchasePlayerUpdate(userId)
+        );
+      allow delete: if false;
+    }
+
+    match /players/{userId}/processedGames/{gameId} {
+      allow read: if ownsPlayer(userId);
+      allow create: if ownsPlayer(userId) && validClientGameReceipt(userId, gameId);
+      allow update, delete: if false;
+    }
+
+    match /players/{userId}/quests/{documentId} {
+      allow read: if ownsPlayer(userId);
+      allow create, update: if ownsPlayer(userId) && documentId == 'progress';
+      allow delete: if false;
+    }
+
+    match /players/{userId}/preferences/{documentId} {
+      allow read: if ownsPlayer(userId) && documentId == 'current';
+      allow create, update: if ownsPlayer(userId)
+        && documentId == 'current' && validPreferences();
+      allow delete: if false;
+    }
+
+    match /players/{userId}/friends/{friendId} {
+      allow read: if ownsPlayer(userId)
+        || (request.auth != null && request.auth.uid == friendId);
+      allow create: if request.auth != null
+        && (request.auth.uid == userId || request.auth.uid == friendId)
+        && friendId != userId
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.createdAt == request.time
+        && acceptedFriendRequest(userId, friendId);
+      allow update: if ownsPlayer(userId)
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.createdAt == request.time;
+      allow delete: if ownsPlayer(userId)
+        || (request.auth != null && request.auth.uid == friendId);
+    }
+
+    match /players/{userId}/friendRequestsSent/{targetId} {
+      allow read: if ownsPlayer(userId)
+        || (request.auth != null && request.auth.uid == targetId);
+      allow create: if ownsPlayer(userId)
+        && validNewFriendRequest(userId, targetId);
+      allow update: if (
+        request.auth != null
+        && request.auth.uid == targetId
+        && validFriendRequestResponse(userId, targetId)
+        && getAfter(
+          /databases/$(database)/documents/players/$(targetId)/friendRequestsReceived/$(userId)
+        ).data.status == request.resource.data.status
+      ) || (
+        ownsPlayer(userId)
+        && validFriendRequestResponse(userId, targetId)
+        && request.resource.data.status == 'accepted'
+        && getAfter(
+          /databases/$(database)/documents/players/$(targetId)/friendRequestsReceived/$(userId)
+        ).data.status == 'accepted'
+        && getAfter(
+          /databases/$(database)/documents/players/$(userId)/friendRequestsReceived/$(targetId)
+        ).data.status == 'accepted'
+      );
+      allow delete: if ownsPlayer(userId)
+        || (request.auth != null && request.auth.uid == targetId);
+    }
+
+    match /players/{userId}/friendRequestsReceived/{senderId} {
+      allow read: if ownsPlayer(userId)
+        || (request.auth != null && request.auth.uid == senderId);
+      allow create: if request.auth != null
+        && request.auth.uid == senderId
+        && validNewFriendRequest(senderId, userId)
+        && getAfter(
+          /databases/$(database)/documents/players/$(senderId)/friendRequestsSent/$(userId)
+        ).data.status == 'pending';
+      allow update: if (
+        ownsPlayer(userId)
+        && validFriendRequestResponse(senderId, userId)
+        && getAfter(
+          /databases/$(database)/documents/players/$(senderId)/friendRequestsSent/$(userId)
+        ).data.status == request.resource.data.status
+      ) || (
+        request.auth != null
+        && request.auth.uid == senderId
+        && validFriendRequestResponse(senderId, userId)
+        && request.resource.data.status == 'accepted'
+        && getAfter(
+          /databases/$(database)/documents/players/$(senderId)/friendRequestsSent/$(userId)
+        ).data.status == 'accepted'
+        && getAfter(
+          /databases/$(database)/documents/players/$(senderId)/friendRequestsReceived/$(userId)
+        ).data.status == 'accepted'
+      );
+      allow delete: if ownsPlayer(userId)
+        || (request.auth != null && request.auth.uid == senderId);
+    }
+
+    match /players/{userId}/blocked/{blockedId} {
+      allow read: if ownsPlayer(userId);
+      allow create, update: if ownsPlayer(userId)
+        && blockedId != userId
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.createdAt == request.time;
+      allow delete: if ownsPlayer(userId);
+    }
+
+    match /players/{userId}/inventory/{itemId} {
+      allow read: if ownsPlayer(userId);
+      allow create: if ownsPlayer(userId)
+        && (
+          validBattlePassSkinCreate(userId, itemId)
+          || validBattlePassLoadingScreenCreate(userId, itemId)
+          || validBattlePassMusicCreate(userId, itemId)
+          || validBattlePassXpBoostCreate(userId, itemId)
+          || validBloc1PurchaseCreate(userId, itemId)
+        );
+      allow update: if ownsPlayer(userId)
+        && (
+          validBattlePassSkinRepair(userId, itemId)
+          || validXpBoostInventoryUseUpdate()
+        );
+      allow delete: if false;
+    }
+
+    match /players/{userId}/battlePassSeasons/{seasonId} {
+      allow read: if ownsPlayer(userId);
+      allow create: if ownsPlayer(userId) && seasonId == 'season-1'
+        && validCreditRewardStateWrite(userId, []);
+      allow update: if ownsPlayer(userId) && seasonId == 'season-1'
+        && validCreditRewardStateWrite(
+          userId, resource.data.get('creditRewardLevels', [])
+        );
+      allow delete: if false;
+
+      match /rewards/{rewardId} {
+        allow read: if ownsPlayer(userId);
+        allow create: if ownsPlayer(userId)
+          && validCreditRewardReceiptCreate(userId, seasonId, rewardId);
+        allow update, delete: if false;
+      }
+    }
+
+    // Boost-state writes are limited to owned inventory, activation, and game completion.
+    match /players/{userId}/{collectionName}/{documentId} {
+      allow read: if ownsPlayer(userId) && collectionName in [
+        'inventory', 'purchases', 'creditTransactions', 'battlePassSeasons',
+        'xpBoostState'
+      ];
+      allow create: if ownsPlayer(userId)
+        && collectionName == 'xpBoostState' && documentId == 'current'
+        && validXpBoostSelection(userId);
+      allow update: if ownsPlayer(userId)
+        && collectionName == 'xpBoostState' && documentId == 'current'
+        && (
+          validXpBoostSelection(userId)
+          || validXpBoostActivation(userId)
+          || validXpBoostFinish()
+        );
+      allow delete: if false;
+    }
+
+    match /publicProfiles/{userId} {
+      allow read: if request.auth != null;
+      allow create: if ownsPlayer(userId)
+        && request.resource.data.keys().hasOnly(['displayName', 'usernameLower', 'createdAt'])
+        && validPseudo(request.resource.data.displayName)
+        && request.resource.data.usernameLower is string
+        && getAfter(/databases/$(database)/documents/players/$(userId)).data.displayName
+          == request.resource.data.displayName
+        && getAfter(/databases/$(database)/documents/players/$(userId)).data.usernameLower
+          == request.resource.data.usernameLower
+        && getAfter(/databases/$(database)/documents/players/$(userId)).data.createdAt
+          == request.resource.data.createdAt;
+      allow update: if ownsPlayer(userId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['displayName', 'usernameLower'])
+        && validPseudo(request.resource.data.displayName)
+        && request.resource.data.usernameLower is string
+        && getAfter(/databases/$(database)/documents/players/$(userId)).data.displayName
+          == request.resource.data.displayName
+        && getAfter(/databases/$(database)/documents/players/$(userId)).data.usernameLower
+          == request.resource.data.usernameLower
+        && getAfter(/databases/$(database)/documents/players/$(userId)).data.lastPseudoChangeAt
+          == request.time;
+      allow delete: if false;
+    }
+
+    match /usernames/{username} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/players/$(request.auth.uid)).data.usernameLower
+          == username;
+      allow delete: if ownsPlayer(resource.data.uid)
+        && getAfter(/databases/$(database)/documents/players/$(request.auth.uid)).data.usernameLower
+          != username
+        && getAfter(/databases/$(database)/documents/players/$(request.auth.uid)).data.lastPseudoChangeAt
+          == request.time;
+      allow update: if false;
+    }
+
+    match /users/{userId} {
+      allow read: if ownsPlayer(userId);
+      allow write: if false;
+    }
+
+    match /leaderboards/{boardId}/entries/{userId} {
+      allow read: if request.auth != null;
+      allow create, update: if boardId == 'single-game'
+        && ownsPlayer(userId)
+        && validLeaderboardEntry(userId);
+      allow delete: if false;
+    }
+
+    match /settings/{document=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

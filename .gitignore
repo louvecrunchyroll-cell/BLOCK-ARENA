@@ -1,0 +1,20 @@
+
+# Dépendances
+node_modules/
+**/node_modules/
+
+# Fichiers temporaires
+.firebase/
+**/.firebase/
+.wrangler/
+**/.wrangler/
+
+# Identifiants locaux
+**/wrangler-account.json
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+firebase-debug.log*

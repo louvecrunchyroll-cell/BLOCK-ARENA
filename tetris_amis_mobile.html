@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1,viewport-fit=cover">
+  <title>BLOCK ARENA — Amis</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090d20;
+      --panel: #151a35;
+      --border: #424779;
+      --cyan: #43e6ff;
+      --muted: #aeb7d8;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      background:
+        radial-gradient(ellipse at 80% 12%, #39215c 0%, transparent 45%),
+        radial-gradient(ellipse at 15% 90%, #113d5b 0%, transparent 40%),
+        var(--bg);
+      font-family: Arial, Helvetica, sans-serif;
+      color: white;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(#ffffff08 1px, transparent 1px),
+        linear-gradient(90deg, #ffffff08 1px, transparent 1px);
+      background-size: 34px 34px;
+    }
+
+    .app {
+      position: relative;
+      width: 100%;
+      max-width: 900px;
+      min-height: 100dvh;
+      margin: auto;
+      padding: calc(env(safe-area-inset-top) + 18px) 20px calc(env(safe-area-inset-bottom) + 24px);
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .back {
+      width: 42px;
+      height: 42px;
+      border: 1px solid #616b9a;
+      border-radius: 12px;
+      background: #22284a;
+      color: white;
+      font-size: 25px;
+      cursor: pointer;
+    }
+
+    .heading {
+      flex: 1;
+      font-size: 25px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      text-shadow: 0 0 16px #7d4dff;
+    }
+
+    .tag {
+      color: #9ddcf7;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 2px;
+    }
+
+    main {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+
+    .section {
+      padding: 12px 14px;
+      border: 1px solid #464b7c;
+      border-radius: 14px;
+      background: linear-gradient(150deg, #222446ed, #121a32f5);
+      box-shadow: 0 6px 20px #0004;
+    }
+
+    .section h2 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 7px;
+      font-size: 15px;
+    }
+
+    .section h2 > span:first-child {
+      color: var(--cyan);
+    }
+
+    .count {
+      margin-left: auto;
+      color: #a6b5d6;
+      font-size: 12px;
+      font-weight: normal;
+      white-space: nowrap;
+    }
+
+    .search {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 9px 12px;
+      border: 1px solid #556187;
+      border-radius: 10px;
+      background: #0d142b;
+      color: var(--cyan);
+    }
+
+    .search input {
+      width: 100%;
+      min-width: 0;
+      border: none;
+      outline: none;
+      background: none;
+      color: white;
+      font-size: 15px;
+    }
+
+    .search input::placeholder {
+      color: #9ca8c6;
+    }
+
+    .empty {
+      padding: 1px 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .person {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 9px;
+      margin-top: 7px;
+      padding: 8px 10px;
+      border: 1px solid #38466a;
+      border-radius: 10px;
+      background: #10182f;
+    }
+
+    .avatar {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      flex: 0 0 36px;
+      place-items: center;
+      border-radius: 11px;
+      background: linear-gradient(135deg, #24cde5, #8d59e9);
+      font-weight: bold;
+    }
+
+    .person > div:not(.avatar):not(.person-actions) {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .person-details {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .person-trigger {
+      display: flex;
+      flex: 1;
+      min-width: 0;
+      align-items: center;
+      gap: 9px;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .person strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .person small {
+      color: #a9b8d5;
+    }
+
+    .person-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .friend-menu[hidden],
+    .fold-content[hidden] {
+      display: none;
+    }
+
+    .friend-menu {
+      width: 100%;
+      justify-content: flex-start;
+      padding-top: 5px;
+      border-top: 1px solid #38466a;
+    }
+
+    .person-actions button {
+      min-height: 36px;
+      padding: 7px 9px;
+      border: 1px solid #76619c;
+      border-radius: 8px;
+      background: #382d57;
+      color: white;
+      white-space: nowrap;
+    }
+
+    .fold-section {
+      overflow: hidden;
+      border: 1px solid #38466a;
+      border-radius: 10px;
+      background: #10182f;
+    }
+
+    .fold-toggle {
+      display: flex;
+      width: 100%;
+      min-height: 42px;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 11px;
+      border: 0;
+      background: transparent;
+      color: white;
+      text-align: left;
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .fold-chevron {
+      color: var(--cyan);
+      font-size: 11px;
+      transition: transform 140ms ease;
+    }
+
+    .fold-toggle[aria-expanded="true"] .fold-chevron {
+      transform: rotate(180deg);
+    }
+
+    .fold-title {
+      font-weight: 700;
+    }
+
+    .fold-toggle .count {
+      font-size: 12px;
+    }
+
+    .fold-content {
+      padding: 0 10px 8px;
+    }
+
+    .fold-content .empty {
+      padding: 4px 1px;
+      font-size: 12px;
+    }
+
+    .note {
+      margin-top: 6px;
+      color: #a4afcb;
+      font-size: 12px;
+    }
+
+    button {
+      touch-action: manipulation;
+    }
+
+    @media (min-width: 700px) {
+      .request-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px;
+      }
+
+      .request-grid .section {
+        min-width: 0;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .app {
+        padding-right: 13px;
+        padding-left: 13px;
+      }
+
+      .section {
+        padding: 10px 11px;
+      }
+
+      .section h2 {
+        font-size: 14px;
+      }
+
+      .person-actions {
+        width: 100%;
+      }
+    }
+  </style>
+  <script src="tetris-transition.js?v=20261109-block-arena-brand"></script>
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><link rel="manifest" href="/manifest.webmanifest"><meta name="application-name" content="BLOCK ARENA"><meta name="apple-mobile-web-app-title" content="BLOCK ARENA"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="theme-color" content="#090b1b"><meta property="og:type" content="website"><meta property="og:site_name" content="BLOCK ARENA"><meta property="og:title" content="BLOCK ARENA"><meta property="og:description" content="Joue à BLOCK ARENA, le jeu de blocs à partager avec tes amis."><meta property="og:image" content="https://tetris-862ae.web.app/logo%20jeu%20app/Logo%20pixel%20violet%20en%20blocs.png"><meta property="og:image:width" content="1254"><meta property="og:image:height" content="1254"><meta property="og:image:alt" content="Logo violet de BLOCK ARENA"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="BLOCK ARENA"><meta name="twitter:description" content="Joue à BLOCK ARENA, le jeu de blocs à partager avec tes amis."><meta name="twitter:image" content="https://tetris-862ae.web.app/logo%20jeu%20app/Logo%20pixel%20violet%20en%20blocs.png"></head>
+<body>
+  <div class="app">
+    <header>
+      <button class="back" aria-label="Retour" onclick="location.href='tetris_salon_mobile_battle_pass.html'">‹</button>
+      <div>
+        <div class="tag">BLOCK ARENA</div>
+        <div class="heading">AMIS</div>
+      </div>
+    </header>
+    <main>
+      <section class="section">
+        <h2><span>⌕</span> Rechercher un joueur</h2>
+        <label class="search">
+          <span>⌕</span>
+          <input id="search" type="search" placeholder="Rechercher par pseudo…" autocomplete="off" aria-label="Rechercher un joueur">
+        </label>
+        <div class="note" id="searchNote">Saisis un pseudo pour rechercher un joueur.</div>
+      </section>
+      <section class="section">
+        <h2><span>♧</span> Liste d'amis <span class="count" id="friendCount">0 ami</span></h2>
+        <div id="friendList"><div class="empty">Aucun ami pour le moment.</div></div>
+      </section>
+      <div class="request-grid">
+        <section class="fold-section">
+          <button class="fold-toggle" id="receivedRequestsToggle" type="button" aria-expanded="false" aria-controls="receivedRequests">
+            <span class="fold-chevron" aria-hidden="true">▼</span>
+            <span class="fold-title">↙ Demandes reçues</span>
+            <span class="count" id="receivedRequestCount">0</span>
+          </button>
+          <div class="fold-content" id="receivedRequests" hidden></div>
+        </section>
+        <section class="fold-section">
+          <button class="fold-toggle" id="sentRequestsToggle" type="button" aria-expanded="false" aria-controls="sentRequests">
+            <span class="fold-chevron" aria-hidden="true">▼</span>
+            <span class="fold-title">↗ Demandes envoyées</span>
+            <span class="count" id="sentRequestCount">0</span>
+          </button>
+          <div class="fold-content" id="sentRequests" hidden></div>
+        </section>
+      </div>
+      <section class="fold-section">
+        <button class="fold-toggle" id="blockedToggle" type="button" aria-expanded="false" aria-controls="blockedPeople">
+          <span class="fold-chevron" aria-hidden="true">▼</span>
+          <span class="fold-title">⊘ Personnes bloquées</span>
+          <span class="count" id="blockedCount">0</span>
+        </button>
+        <div class="fold-content" id="blockedPeople" hidden></div>
+      </section>
+    </main>
+  </div>
+  <script>
+    const input = document.getElementById('search'), note = document.getElementById('searchNote');
+    input.addEventListener('input', () => {
+      note.textContent = input.value.trim()
+        ? "Recherche indisponible dans cette maquette. Elle sera reliée aux comptes plus tard."
+        : "Saisis un pseudo pour rechercher un joueur.";
+    });
+  </script>
+  <script src="firebase-config.js?v=20261107-firebase-functions"></script>
+  <script src="firebase-sdk-loader.js?v=20261107-auth-no-app-check"></script>
+  <script src="tetris_app.js?v=20261112-battle-pass-music"></script>
+</body>
+</html>

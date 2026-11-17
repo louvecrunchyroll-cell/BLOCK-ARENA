@@ -1,0 +1,10 @@
+name = "tetrisw-xp"
+main = "src/index.js"
+compatibility_date = "2026-11-02"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+FIREBASE_PROJECT_ID = "tetris-862ae"
+FIREBASE_PROJECT_NUMBER = "861975756728"
+FIREBASE_APP_ID = "1:861975756728:web:49452ecdd2abbfe251194d"
+ALLOWED_ORIGINS = "https://tetris-862ae.web.app,https://tetris-862ae.firebaseapp.com"
